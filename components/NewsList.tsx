@@ -15,20 +15,6 @@ const MOCK_NEWS = [
     summary: "React 19 引入了 useActionState, useFormStatus 等新 Hooks，极大简化了表单处理。",
     time: "5小时前",
     source: "技术社区"
-  },
-  {
-    id: 3,
-    title: "Module Federation 在大型项目中的最佳实践",
-    summary: "如何通过模块联邦实现跨团队的代码共享和独立部署，解决微前端架构下的性能瓶颈。",
-    time: "1天前",
-    source: "架构师周刊"
-  },
-  {
-    id: 4,
-    title: "Tailwind CSS v4.0 预览版发布",
-    summary: "全新的引擎，更快的编译速度，以及基于 CSS 原生变量的配置系统。",
-    time: "2天前",
-    source: "设计指南"
   }
 ];
 
