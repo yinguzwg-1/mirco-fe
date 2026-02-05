@@ -6,7 +6,7 @@ const MOCK_NEWS = [
     id: 1,
     title: "Next.js 15 正式发布：带来全新的缓存机制",
     summary: "Next.js 15 引入了异步请求 API、改进的缓存策略以及对 React 19 的全面支持。",
-    time: "2小时前",
+    time: "2小时前111",
     source: "前端头条"
   },
   {
