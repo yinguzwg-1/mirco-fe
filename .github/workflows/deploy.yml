@@ -68,8 +68,19 @@ jobs:
           key: ${{ secrets.SSH_KEY }}
           script: |
             docker pull ${{ env.REGISTRY }}/${{ env.NAMESPACE }}/${{ env.APP_NAME }}:latest
-            docker stop ${{ env.CONTAINER_NAME }} || true
-            docker rm ${{ env.CONTAINER_NAME }} || true
+            
+            # 按容器名停止
+            docker stop ${{ env.CONTAINER_NAME }} 2>/dev/null || true
+            docker rm ${{ env.CONTAINER_NAME }} 2>/dev/null || true
+            
+            # 按端口停止（防止旧容器用了不同名字但占了同一端口）
+            OLD_CONTAINER=$(docker ps -q --filter "publish=${{ env.PORT }}")
+            if [ -n "$OLD_CONTAINER" ]; then
+              echo "🛑 发现占用端口 ${{ env.PORT }} 的容器: $OLD_CONTAINER，正在停止..."
+              docker stop $OLD_CONTAINER
+              docker rm $OLD_CONTAINER
+            fi
+            
             docker run -d \
               --name ${{ env.CONTAINER_NAME }} \
               --restart unless-stopped \
