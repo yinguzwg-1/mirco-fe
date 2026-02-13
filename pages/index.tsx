@@ -1,9 +1,9 @@
-import NewsList from '../components/NewsList';
+import AiAssistant from '../components/AiAssistant';
 
 export default function Home() {
   return (
     <div className="h-screen">
-      <NewsList />
+      <AiAssistant />
     </div>
   );
 }
