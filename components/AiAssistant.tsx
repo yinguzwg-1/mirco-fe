@@ -1,13 +1,19 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 
+// 获取后端 API 基地址
+function getApiBase(): string {
+  if (typeof window === 'undefined') return '';
+  // 本地开发 → NestJS 后端；生产环境（含 Wujie 沙箱）→ 主站域名（nginx 转发到后端）
+  return window.location.hostname === 'localhost'
+    ? 'http://localhost:3001'
+    : 'https://zwg.autos';
+}
+
 // 将相对路径的图片 URL 补全为可访问的完整 URL
 function resolveImageUrl(url: string | null | undefined): string {
   if (!url) return '';
   if (url.startsWith('http')) return url;
-  // 本地开发 → NestJS 后端；生产环境 → 同域
-  const base = typeof window !== 'undefined' && window.location.hostname === 'localhost'
-    ? 'http://localhost:3001'
-    : 'https://zwg.autos';
+  const base = getApiBase();
   return `${base}${url.startsWith('/') ? '' : '/'}${url}`;
 }
 
@@ -56,28 +62,43 @@ export default function AiAssistant() {
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const lastReceivedPhotoRef = useRef<string | null>(null); // 去重：同一张图只处理一次
 
-  // 通过 postMessage 从主应用接收图片 URL
+  // 接收照片的统一处理函数
+  const handleReceivePhoto = useCallback((photoUrl: string) => {
+    // 去重：同一张图片的重试消息只处理第一次
+    if (lastReceivedPhotoRef.current === photoUrl) return;
+    lastReceivedPhotoRef.current = photoUrl;
+
+    setSelectedImage(photoUrl);
+    setImageUrl(photoUrl);
+    // 自动添加系统消息
+    setMessages(prev => [...prev, {
+      id: Date.now().toString(),
+      role: 'system',
+      content: '已选择照片，请输入问题或使用下方快捷提问 👇',
+      imageUrl: photoUrl,
+    }]);
+  }, []);
+
+  // 方式1：通过 postMessage 从主应用接收图片 URL（iframe 模式 + Wujie 模式）
   useEffect(() => {
     const handler = (e: MessageEvent) => {
       if (e.data?.type === 'SELECT_PHOTO' && e.data?.imageUrl) {
-        // 去重：同一张图片的重试消息只处理第一次
-        if (lastReceivedPhotoRef.current === e.data.imageUrl) return;
-        lastReceivedPhotoRef.current = e.data.imageUrl;
-
-        setSelectedImage(e.data.imageUrl);
-        setImageUrl(e.data.imageUrl);
-        // 自动添加系统消息
-        setMessages(prev => [...prev, {
-          id: Date.now().toString(),
-          role: 'system',
-          content: '已选择照片，请输入问题或使用下方快捷提问 👇',
-          imageUrl: e.data.imageUrl,
-        }]);
+        handleReceivePhoto(e.data.imageUrl);
       }
     };
     window.addEventListener('message', handler);
     return () => window.removeEventListener('message', handler);
-  }, []);
+  }, [handleReceivePhoto]);
+
+  // 方式2：通过 Wujie bus 接收（生产环境备用）
+  useEffect(() => {
+    const wujie = (window as any).__WUJIE;
+    if (wujie?.bus) {
+      const handler = (photoUrl: string) => handleReceivePhoto(photoUrl);
+      wujie.bus.$on('select-photo', handler);
+      return () => wujie.bus.$off('select-photo', handler);
+    }
+  }, [handleReceivePhoto]);
 
   // 自动滚动到底部
   useEffect(() => {
@@ -121,11 +142,7 @@ export default function AiAssistant() {
           content: m.content,
         }));
 
-      const apiBase = typeof window !== 'undefined' && window.location.hostname === 'localhost'
-        ? 'http://localhost:3001'
-        : '';
-
-      const res = await fetch(`${apiBase}/api/ai/analyze`, {
+      const res = await fetch(`${getApiBase()}/api/ai/analyze`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -213,11 +230,7 @@ export default function AiAssistant() {
     }]);
 
     try {
-      const apiBase = typeof window !== 'undefined' && window.location.hostname === 'localhost'
-        ? 'http://localhost:3001'
-        : '';
-
-      const res = await fetch(`${apiBase}/api/ai/cartoon`, {
+      const res = await fetch(`${getApiBase()}/api/ai/cartoon`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ imageUrl: img }),
