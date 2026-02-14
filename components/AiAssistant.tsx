@@ -3,10 +3,11 @@ import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react'
 // 获取后端 API 基地址
 function getApiBase(): string {
   if (typeof window === 'undefined') return '';
-  // 本地开发 → NestJS 后端；生产环境（含 Wujie 沙箱）→ 主站域名（nginx 转发到后端）
-  return window.location.hostname === 'localhost'
-    ? 'http://localhost:3001'
-    : 'https://zwg.autos';
+  // 本地开发 → 直接访问 NestJS 后端
+  if (window.location.hostname === 'localhost') return 'http://localhost:3001';
+  // 生产环境（含 Wujie 沙箱）→ 用相对路径，由 nginx 转发到后端
+  // 不能写死 https://zwg.autos 否则在 Wujie 沙箱里会跨域
+  return '';
 }
 
 // 将相对路径的图片 URL 补全为可访问的完整 URL
