@@ -1,4 +1,15 @@
-import React, { useState, useRef, useEffect, useCallback } from 'react';
+import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
+
+// 将相对路径的图片 URL 补全为可访问的完整 URL
+function resolveImageUrl(url: string | null | undefined): string {
+  if (!url) return '';
+  if (url.startsWith('http')) return url;
+  // 本地开发 → NestJS 后端；生产环境 → 同域
+  const base = typeof window !== 'undefined' && window.location.hostname === 'localhost'
+    ? 'http://localhost:3001'
+    : 'https://zwg.autos';
+  return `${base}${url.startsWith('/') ? '' : '/'}${url}`;
+}
 
 interface Message {
   id: string;
@@ -43,11 +54,16 @@ export default function AiAssistant() {
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const lastReceivedPhotoRef = useRef<string | null>(null); // 去重：同一张图只处理一次
 
   // 通过 postMessage 从主应用接收图片 URL
   useEffect(() => {
     const handler = (e: MessageEvent) => {
       if (e.data?.type === 'SELECT_PHOTO' && e.data?.imageUrl) {
+        // 去重：同一张图片的重试消息只处理第一次
+        if (lastReceivedPhotoRef.current === e.data.imageUrl) return;
+        lastReceivedPhotoRef.current = e.data.imageUrl;
+
         setSelectedImage(e.data.imageUrl);
         setImageUrl(e.data.imageUrl);
         // 自动添加系统消息
@@ -241,9 +257,9 @@ export default function AiAssistant() {
   };
 
   return (
-    <div className="flex flex-col h-full bg-slate-50">
+    <div className="flex flex-col h-full bg-slate-50" style={{ overscrollBehavior: 'contain' }}>
       {/* 消息列表 */}
-      <div className="flex-1 overflow-y-auto px-3 py-4 space-y-3">
+      <div className="flex-1 overflow-y-auto px-3 py-4 space-y-3" style={{ overscrollBehavior: 'contain' }}>
         {messages.length === 0 && (
           <div className="flex flex-col items-center justify-center h-full text-center px-6 gap-4">
             <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-sky-400 to-blue-500 flex items-center justify-center shadow-lg shadow-sky-500/20">
@@ -298,7 +314,7 @@ export default function AiAssistant() {
               {msg.imageUrl && (
                 <div className="mb-2 rounded-lg overflow-hidden border border-white/20">
                   <img
-                    src={msg.imageUrl}
+                    src={resolveImageUrl(msg.imageUrl)}
                     alt=""
                     className="w-full max-h-32 object-cover"
                     onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
@@ -310,7 +326,7 @@ export default function AiAssistant() {
               {msg.cartoonUrl && (
                 <div className="mb-2 rounded-lg overflow-hidden border border-sky-200 shadow-sm">
                   <img
-                    src={msg.cartoonUrl}
+                    src={resolveImageUrl(msg.cartoonUrl)}
                     alt="Cartoon"
                     className={`w-full max-h-48 object-cover ${
                       msg.isCartoonMock
@@ -371,15 +387,27 @@ export default function AiAssistant() {
 
       {/* 输入区域 */}
       <div className="border-t border-slate-200 bg-white p-3">
+        {/* 图片预览卡片 */}
         {selectedImage && (
-          <div className="flex items-center gap-2 mb-2 px-1">
-            <img src={selectedImage} alt="" className="w-8 h-8 rounded-lg object-cover border border-slate-200" />
-            <span className="text-[10px] text-slate-400 flex-1 truncate">当前分析图片</span>
+          <div className="flex items-start gap-3 mb-3 p-2 rounded-xl bg-gradient-to-r from-sky-50 to-blue-50 border border-sky-100">
+            <img
+              src={resolveImageUrl(selectedImage)}
+              alt="预览"
+              className="w-[60px] h-[60px] rounded-lg object-cover border border-sky-200 shadow-sm flex-shrink-0"
+            />
+            <div className="flex-1 min-w-0 py-1">
+              <p className="text-xs font-medium text-slate-700 truncate">当前分析照片</p>
+              <p className="text-[10px] text-slate-400 mt-0.5">输入问题或使用快捷提问开始 AI 构图分析</p>
+            </div>
             <button
-              onClick={() => { setSelectedImage(null); setImageUrl(''); }}
-              className="text-[10px] text-slate-300 hover:text-red-400 transition-colors"
+              onClick={() => { setSelectedImage(null); setImageUrl(''); lastReceivedPhotoRef.current = null; }}
+              className="flex-shrink-0 mt-1 w-5 h-5 rounded-full bg-slate-200/80 hover:bg-red-100 text-slate-400 hover:text-red-500 flex items-center justify-center transition-colors"
+              title="移除图片"
             >
-              ✕
+              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" className="w-3 h-3">
+                <line x1="4" y1="4" x2="12" y2="12" />
+                <line x1="12" y1="4" x2="4" y2="12" />
+              </svg>
             </button>
           </div>
         )}
@@ -389,7 +417,7 @@ export default function AiAssistant() {
             value={input}
             onChange={e => setInput(e.target.value)}
             onKeyDown={handleKeyDown}
-            placeholder={selectedImage ? '输入问题...' : '粘贴图片 URL 或输入问题...'}
+            placeholder={selectedImage ? '描述你想分析的内容...' : '粘贴图片 URL 或输入问题...'}
             rows={1}
             className="flex-1 px-3 py-2 text-sm rounded-xl border border-slate-200 bg-slate-50 focus:outline-none focus:border-sky-400 focus:ring-1 focus:ring-sky-400/30 resize-none transition-all max-h-20"
             style={{ minHeight: '36px' }}
