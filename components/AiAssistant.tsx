@@ -24,8 +24,6 @@ interface Message {
   content: string;
   imageUrl?: string;
   isStreaming?: boolean;
-  cartoonUrl?: string;
-  isCartoonMock?: boolean;
 }
 
 // 简易 Markdown → HTML（不引入额外依赖）
@@ -57,11 +55,20 @@ export default function AiAssistant() {
   const [input, setInput] = useState('');
   const [imageUrl, setImageUrl] = useState('');
   const [isLoading, setIsLoading] = useState(false);
-  const [isCartoonLoading, setIsCartoonLoading] = useState(false);
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const lastReceivedPhotoRef = useRef<string | null>(null); // 去重：同一张图只处理一次
+
+  // === 重置所有状态（关闭窗口时由主应用触发） ===
+  const resetAllState = useCallback(() => {
+    setMessages([]);
+    setInput('');
+    setImageUrl('');
+    setSelectedImage(null);
+    setIsLoading(false);
+    lastReceivedPhotoRef.current = null;
+  }, []);
 
   // 接收照片的统一处理函数
   const handleReceivePhoto = useCallback((photoUrl: string) => {
@@ -71,8 +78,10 @@ export default function AiAssistant() {
 
     setSelectedImage(photoUrl);
     setImageUrl(photoUrl);
-    // 自动添加系统消息
-    setMessages(prev => [...prev, {
+    setInput('');
+    setIsLoading(false);
+    // 清空旧对话，用新照片的系统消息作为干净的起点
+    setMessages([{
       id: Date.now().toString(),
       role: 'system',
       content: '已选择照片，请输入问题或使用下方快捷提问 👇',
@@ -80,26 +89,33 @@ export default function AiAssistant() {
     }]);
   }, []);
 
-  // 方式1：通过 postMessage 从主应用接收图片 URL（iframe 模式 + Wujie 模式）
+  // 方式1：通过 postMessage 从主应用接收图片 URL / 重置指令
   useEffect(() => {
     const handler = (e: MessageEvent) => {
       if (e.data?.type === 'SELECT_PHOTO' && e.data?.imageUrl) {
         handleReceivePhoto(e.data.imageUrl);
+      } else if (e.data?.type === 'RESET_STATE') {
+        resetAllState();
       }
     };
     window.addEventListener('message', handler);
     return () => window.removeEventListener('message', handler);
-  }, [handleReceivePhoto]);
+  }, [handleReceivePhoto, resetAllState]);
 
   // 方式2：通过 Wujie bus 接收（生产环境备用）
   useEffect(() => {
     const wujie = (window as any).__WUJIE;
     if (wujie?.bus) {
-      const handler = (photoUrl: string) => handleReceivePhoto(photoUrl);
-      wujie.bus.$on('select-photo', handler);
-      return () => wujie.bus.$off('select-photo', handler);
+      const photoHandler = (photoUrl: string) => handleReceivePhoto(photoUrl);
+      const resetHandler = () => resetAllState();
+      wujie.bus.$on('select-photo', photoHandler);
+      wujie.bus.$on('reset-state', resetHandler);
+      return () => {
+        wujie.bus.$off('select-photo', photoHandler);
+        wujie.bus.$off('reset-state', resetHandler);
+      };
     }
-  }, [handleReceivePhoto]);
+  }, [handleReceivePhoto, resetAllState]);
 
   // 自动滚动到底部
   useEffect(() => {
@@ -206,63 +222,6 @@ export default function AiAssistant() {
     }
   }, [input, imageUrl, selectedImage, isLoading, messages]);
 
-  // 生成卡通图片
-  const generateCartoon = useCallback(async () => {
-    const img = imageUrl || selectedImage;
-    if (!img || isCartoonLoading) return;
-
-    setIsCartoonLoading(true);
-
-    // 添加用户消息
-    setMessages(prev => [...prev, {
-      id: Date.now().toString(),
-      role: 'user',
-      content: '🎨 生成卡通风格图片',
-      imageUrl: img,
-    }]);
-
-    // AI 占位消息
-    const aiMsgId = (Date.now() + 1).toString();
-    setMessages(prev => [...prev, {
-      id: aiMsgId,
-      role: 'assistant',
-      content: '🎨 正在生成卡通风格图片，请稍候...',
-      isStreaming: true,
-    }]);
-
-    try {
-      const res = await fetch(`${getApiBase()}/api/ai/cartoon`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ imageUrl: img }),
-      });
-
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-
-      const data = await res.json();
-
-      setMessages(prev => prev.map(m =>
-        m.id === aiMsgId
-          ? {
-              ...m,
-              content: data.message,
-              cartoonUrl: data.cartoonUrl,
-              isCartoonMock: data.isMock,
-              isStreaming: false,
-            }
-          : m
-      ));
-    } catch (error: any) {
-      setMessages(prev => prev.map(m =>
-        m.id === aiMsgId
-          ? { ...m, content: `⚠️ 卡通图片生成失败：${error.message || '请稍后重试'}`, isStreaming: false }
-          : m
-      ));
-    } finally {
-      setIsCartoonLoading(false);
-    }
-  }, [imageUrl, selectedImage, isCartoonLoading]);
-
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
       e.preventDefault();
@@ -336,27 +295,6 @@ export default function AiAssistant() {
                 </div>
               )}
 
-              {/* 卡通图片展示 */}
-              {msg.cartoonUrl && (
-                <div className="mb-2 rounded-lg overflow-hidden border border-sky-200 shadow-sm">
-                  <img
-                    src={resolveImageUrl(msg.cartoonUrl)}
-                    alt="Cartoon"
-                    className={`w-full max-h-48 object-cover ${
-                      msg.isCartoonMock
-                        ? 'saturate-[1.8] contrast-[1.4] brightness-[1.05] hue-rotate-[10deg]'
-                        : ''
-                    }`}
-                    onError={(e) => { (e.target as HTMLImageElement).style.display = 'none'; }}
-                  />
-                  {msg.isCartoonMock && (
-                    <div className="bg-sky-50 px-2 py-1 text-[10px] text-sky-500 text-center font-medium">
-                      卡通滤镜效果 · 配置 API Key 后可生成 AI 卡通图
-                    </div>
-                  )}
-                </div>
-              )}
-
               {/* 消息内容 */}
               {msg.role === 'assistant' ? (
                 <div className={msg.isStreaming ? 'typing-cursor' : ''}>
@@ -375,17 +313,9 @@ export default function AiAssistant() {
       </div>
 
       {/* 快捷提问 */}
-      {selectedImage && !isLoading && !isCartoonLoading && (
+      {selectedImage && !isLoading && (
         <div className="px-3 pb-2">
           <div className="flex gap-1.5 overflow-x-auto scrollbar-hide pb-1">
-            {/* 卡通生成按钮 - 特殊样式 */}
-            <button
-              onClick={generateCartoon}
-              disabled={isCartoonLoading}
-              className="shrink-0 px-3 py-1.5 bg-gradient-to-r from-purple-500 to-pink-500 rounded-xl text-[11px] font-bold text-white hover:from-purple-600 hover:to-pink-600 transition-all shadow-sm shadow-purple-500/20 disabled:opacity-50"
-            >
-              {isCartoonLoading ? '⏳ 生成中...' : '🖼️ 生成卡通'}
-            </button>
             {QUICK_PROMPTS.map((q) => (
               <button
                 key={q.label}
